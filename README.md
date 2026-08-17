@@ -33,15 +33,41 @@ Engine instance (HTTP / gRPC / WASM / in-process)
 
 ## Packages
 
-| Package     | Responsibility                                                    |
-|-------------|-------------------------------------------------------------------|
-| `auth`      | JWT + API-key authentication, RBAC authorization, tenant resolution |
-| `routing`   | Endpoint registry, semantic version resolver, load balancing (round-robin, weighted) |
-| `ratelimit` | Token bucket, fixed window, sliding window limiters + per-tenant quotas |
-| `retry`     | Exponential backoff retry policy + circuit breaker (closed/open/half-open) |
-| `telemetry` | Structured logging, request metrics, distributed tracing spans |
-| `protocol`  | HTTP ↔ Request/Response conversion (JSON), gRPC envelope conversion, error responses |
-| `gateway`   | The gateway server: middleware chain, health endpoint, engine forwarding client |
+| Package      | Responsibility                                                    |
+|--------------|-------------------------------------------------------------------|
+| `auth`       | JWT + API-key authentication, RBAC authorization, tenant resolution |
+| `routing`    | Endpoint registry, semantic version resolver, load balancing (round-robin, weighted) |
+| `ratelimit`  | Token bucket, fixed window, sliding window limiters + per-tenant quotas |
+| `retry`      | Exponential backoff retry policy + circuit breaker (closed/open/half-open) |
+| `telemetry`  | Structured logging, request metrics, distributed tracing spans |
+| `protocol`   | HTTP ↔ Request/Response conversion (JSON), gRPC envelope conversion, error responses |
+| `gateway`    | The HTTP front door: middleware chain, health endpoint, engine forwarding client |
+| `grpcserver` | The gRPC front door: implements the canonical `EngineService` from [contracts](https://github.com/APPNEURAL-Engines/contracts), backed by the same auth/routing/ratelimit/retry instances as `gateway` |
+| `config`     | Environment-based runtime configuration for `cmd/gateway` |
+| `cmd/gateway`| The deployable binary — starts both front doors from one process |
+
+## Two Front Doors, One Policy Engine
+
+The gateway is the "Gateway" step in the platform's contract flow:
+
+```
+Application → SDK → Contract (proto) → Gateway → Engine → Provider
+```
+
+It exposes two protocols that share one instance of every policy component
+(auth, routing registry, rate limiter, quota, circuit breaker):
+
+- **gRPC** (`grpcserver`) implements `appneurox.engine.v1.EngineService` —
+  `Execute`, `GetHealth`, `ListEngines`, `GetEngine` — exactly as defined in
+  `contracts/proto/engine/gateway.proto`. This is the canonical, typed API
+  SDKs generated from `contracts` talk to.
+- **HTTP/JSON** (`gateway`) exposes `POST /v1/{engine}/{capability}` for
+  clients that prefer plain REST.
+
+Because both share the same `auth.Authenticator`, `auth.Authorizer`,
+`ratelimit.Limiter`, `routing.Registry` and `retry.CircuitBreaker`
+instances, a request is authenticated, authorized, rate limited and routed
+identically no matter which protocol it arrived on.
 
 ## Request Flow
 
@@ -116,6 +142,33 @@ func main() {
 See [examples/basic](examples/basic) for a complete runnable program including a mock
 engine.
 
+## Running the gateway binary
+
+`cmd/gateway` wires the HTTP and gRPC front doors together and is what actually
+gets deployed. It's configured entirely from environment variables:
+
+| Variable                  | Default              | Purpose                                   |
+|----------------------------|----------------------|--------------------------------------------|
+| `GATEWAY_HTTP_ADDR`        | `:8080`               | HTTP/JSON listen address                    |
+| `GATEWAY_GRPC_ADDR`        | `:9090`               | gRPC (`EngineService`) listen address       |
+| `GATEWAY_JWT_SECRET`       | *(unset)*             | HMAC secret for JWT auth; auth/authz are disabled if unset (dev only) |
+| `GATEWAY_JWT_ISSUER`       | `appneurox`            | Expected JWT issuer                         |
+| `GATEWAY_JWT_AUDIENCE`     | `engine-gateway`       | Expected JWT audience                       |
+| `GATEWAY_DEFAULT_TIMEOUT`  | `10s`                  | Default per-request timeout                 |
+| `GATEWAY_ENGINES`          | *(unset)*              | Static bootstrap registry: `name=protocol://address,...` (e.g. `pdf=http://pdf-engine:8080`) |
+
+```bash
+make build
+GATEWAY_ENGINES="pdf=http://localhost:7100" ./bin/gateway
+```
+
+`GATEWAY_ENGINES` is a static bootstrap for local development and small
+deployments; production deployments should replace it with dynamic service
+discovery feeding `routing.Registry`.
+
+See [deploy/Dockerfile](deploy/Dockerfile) for a container build and the
+[Makefile](Makefile) for `build`/`run`/`test`/`docker` targets.
+
 ## Testing
 
 ```bash
@@ -123,7 +176,8 @@ go test ./... -cover
 ```
 
 All packages have unit tests (auth, routing, ratelimit, retry, protocol, telemetry)
-plus end-to-end gateway tests covering the full middleware chain.
+plus end-to-end tests for both the HTTP middleware chain (`gateway`) and the
+gRPC `EngineService` implementation (`grpcserver`, using `bufconn`).
 
 ## License
 
