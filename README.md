@@ -169,6 +169,17 @@ discovery feeding `routing.Registry`.
 See [deploy/Dockerfile](deploy/Dockerfile) for a container build and the
 [Makefile](Makefile) for `build`/`run`/`test`/`docker` targets.
 
+### Wiring in a real engine
+
+Engines don't need to be Go, or implement anything from `engine-core` —
+`EngineEndpoint.Protocol: "http"` just needs something listening at
+`{address}/{capability}` (see `gateway/client.go`'s `HTTPEngineClient`).
+[APPNEURAL-Engines/pdf-engine's `service/`](https://github.com/APPNEURAL-Engines/pdf-engine/tree/main/service)
+is a worked example: a stdlib-only HTTP shim in front of a mature Python PDF
+library, verified end-to-end through both this gateway's HTTP and gRPC front
+doors with real multi-page PDFs (metadata extraction, splitting, merging) —
+not a mock backend.
+
 ## Testing
 
 ```bash
