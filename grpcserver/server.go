@@ -148,11 +148,23 @@ func (s *Server) Execute(ctx context.Context, req *enginev1.ExecuteRequest) (*en
 		return nil, status.Error(codes.Internal, callErr.Error())
 	}
 
+	// A transport-level success (callErr == nil) doesn't mean the engine's
+	// own call succeeded -- HTTPEngineClient.Forward only errors on network
+	// failures, so a 4xx/5xx from the adapter comes back here as a normal
+	// pResp with that status code, not as callErr. Translate it into a real
+	// gRPC error so gRPC/SDK callers can tell success from failure without
+	// inspecting the payload themselves.
+	if pResp.Status >= 400 {
+		s.cfg.Metrics.RecordRequest(req.GetEngineName(), false, time.Since(start))
+		code, message := httpErrorToGRPC(pResp.Status, pResp.Payload)
+		return nil, status.Error(code, message)
+	}
+
 	s.cfg.Metrics.RecordRequest(req.GetEngineName(), true, time.Since(start))
 
 	return &enginev1.ExecuteResponse{
 		Status:  &commonv1.Status{Success: true},
-		Payload: pResp.Payload,
+		Payload: unwrapPayload(pResp.Payload),
 		ResponseMetadata: &commonv1.ResponseMetadata{
 			RequestId:     req.GetRequestMetadata().GetId(),
 			DurationMs:    time.Since(start).Milliseconds(),

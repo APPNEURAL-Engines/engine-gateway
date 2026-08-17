@@ -3,6 +3,7 @@ package grpcserver
 import (
 	"context"
 	"net"
+	"strings"
 	"testing"
 
 	commonv1 "github.com/APPNEURAL-Engines/contracts/gen/go/common"
@@ -32,6 +33,18 @@ func (f *fakeEngineClient) Forward(_ context.Context, _ *routing.EngineEndpoint,
 		return nil, f.err
 	}
 	return &protocol.Response{Status: 200, Payload: req.Payload, ContentType: "application/octet-stream"}, nil
+}
+
+// scriptedEngineClient returns a fixed HTTP status/payload regardless of the
+// request, simulating what a real HTTP adapter (pdf-engine, storage-engine,
+// rule-engine) sends back on success or failure.
+type scriptedEngineClient struct {
+	status  int
+	payload []byte
+}
+
+func (s *scriptedEngineClient) Forward(context.Context, *routing.EngineEndpoint, *protocol.Request) (*protocol.Response, error) {
+	return &protocol.Response{Status: s.status, Payload: s.payload, ContentType: "application/json"}, nil
 }
 
 func startTestServer(t *testing.T, cfg Config) (enginev1.EngineServiceClient, func()) {
@@ -217,5 +230,107 @@ func TestGetEngine_NotFound(t *testing.T) {
 	_, err := svcClient.GetEngine(context.Background(), &enginev1.GetEngineRequest{EngineName: "missing"})
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("expected NotFound, got %v", err)
+	}
+}
+
+// The following two tests guard against the bug this file's Execute() used
+// to have: it always reported Status.Success: true and never returned a
+// gRPC error, no matter what HTTP status the engine adapter actually
+// returned -- discovered only once a real SDK made a real call through a
+// real gateway to a real (failing) engine and silently got back "success".
+
+func TestExecute_AdapterErrorBecomesGRPCError(t *testing.T) {
+	scripted := &scriptedEngineClient{
+		status:  422,
+		payload: []byte(`{"error":{"code":"UNKNOWN_OPERATOR","message":"unknown operator 'nope'","details":{"ruleId":"r1"}}}`),
+	}
+	svcClient, cleanup := startTestServer(t, Config{
+		Registry:        newTestRegistry(t),
+		VersionResolver: routing.NewVersionResolver("1.0.0"),
+		EngineClient:    scripted,
+	})
+	defer cleanup()
+
+	_, err := svcClient.Execute(context.Background(), &enginev1.ExecuteRequest{
+		EngineName: "pdf", Capability: "rule.evaluate", Payload: []byte(`{}`),
+	})
+	if err == nil {
+		t.Fatal("expected an error, got success")
+	}
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected FailedPrecondition for HTTP 422, got %v", status.Code(err))
+	}
+	msg := status.Convert(err).Message()
+	if !strings.Contains(msg, "UNKNOWN_OPERATOR") || !strings.Contains(msg, "unknown operator 'nope'") {
+		t.Fatalf("expected error message to carry the adapter's code and message, got %q", msg)
+	}
+}
+
+func TestExecute_UnwrapsDataEnvelopeOnSuccess(t *testing.T) {
+	scripted := &scriptedEngineClient{
+		status:  200,
+		payload: []byte(`{"data":{"matched":true,"matchedRuleIds":["vip-discount"]}}`),
+	}
+	svcClient, cleanup := startTestServer(t, Config{
+		Registry:        newTestRegistry(t),
+		VersionResolver: routing.NewVersionResolver("1.0.0"),
+		EngineClient:    scripted,
+	})
+	defer cleanup()
+
+	resp, err := svcClient.Execute(context.Background(), &enginev1.ExecuteRequest{
+		EngineName: "pdf", Capability: "rule.evaluate", Payload: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !resp.GetStatus().GetSuccess() {
+		t.Fatal("expected success status")
+	}
+	want := `{"matched":true,"matchedRuleIds":["vip-discount"]}`
+	if string(resp.GetPayload()) != want {
+		t.Fatalf("expected unwrapped data payload %q, got %q", want, resp.GetPayload())
+	}
+}
+
+func TestExecute_NonEnvelopedErrorStillBecomesGRPCError(t *testing.T) {
+	// An adapter that doesn't follow the {"error": {...}} convention (or
+	// returns a plain-text body) still must not be reported as success.
+	scripted := &scriptedEngineClient{status: 500, payload: []byte("internal server error")}
+	svcClient, cleanup := startTestServer(t, Config{
+		Registry:        newTestRegistry(t),
+		VersionResolver: routing.NewVersionResolver("1.0.0"),
+		EngineClient:    scripted,
+	})
+	defer cleanup()
+
+	_, err := svcClient.Execute(context.Background(), &enginev1.ExecuteRequest{
+		EngineName: "pdf", Capability: "x", Payload: []byte(`{}`),
+	})
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("expected Internal for HTTP 500, got %v (%v)", status.Code(err), err)
+	}
+}
+
+func TestGRPCCodeForHTTPStatus(t *testing.T) {
+	cases := map[int]codes.Code{
+		400: codes.InvalidArgument,
+		401: codes.Unauthenticated,
+		403: codes.PermissionDenied,
+		404: codes.NotFound,
+		408: codes.DeadlineExceeded,
+		409: codes.Aborted,
+		413: codes.ResourceExhausted,
+		429: codes.ResourceExhausted,
+		501: codes.Unimplemented,
+		502: codes.Unavailable,
+		503: codes.Unavailable,
+		422: codes.FailedPrecondition,
+		500: codes.Internal,
+	}
+	for httpStatus, want := range cases {
+		if got := grpcCodeForHTTPStatus(httpStatus); got != want {
+			t.Errorf("grpcCodeForHTTPStatus(%d) = %v, want %v", httpStatus, got, want)
+		}
 	}
 }
