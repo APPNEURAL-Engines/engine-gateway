@@ -3,7 +3,8 @@ module github.com/APPNEURAL-Engines/engine-gateway
 go 1.26.6
 
 require (
-	github.com/APPNEURAL-Engines/contracts v0.0.0-20260817054326-92f9e16fb2be
+	connectrpc.com/connect v1.20.0
+	github.com/APPNEURAL-Engines/contracts v0.0.0-20260817180413-b9b10d590837
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	google.golang.org/grpc v1.83.0
 	google.golang.org/protobuf v1.36.12

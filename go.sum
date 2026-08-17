@@ -1,5 +1,7 @@
-github.com/APPNEURAL-Engines/contracts v0.0.0-20260817054326-92f9e16fb2be h1:vOUvyQqhI2+UlZS645Fw1rTTc726BdqFlgS7dBf6k+c=
-github.com/APPNEURAL-Engines/contracts v0.0.0-20260817054326-92f9e16fb2be/go.mod h1:g0QJRkc48TKM/jLU2J8vNJZgvdflABrIu8Y4OX1665s=
+connectrpc.com/connect v1.20.0 h1:6TNDAB+WeNd2uolWNlYczB5E0KNNaVMNUEx8JEUsPmQ=
+connectrpc.com/connect v1.20.0/go.mod h1:A2ygJrukXwWy32vkCAAHNVguZrqZ+jeZ9rGRnGR4dN4=
+github.com/APPNEURAL-Engines/contracts v0.0.0-20260817180413-b9b10d590837 h1:bqsGAh9q45/GBQNwK//rYrXHvPoW7alQlFzwH8s3LR8=
+github.com/APPNEURAL-Engines/contracts v0.0.0-20260817180413-b9b10d590837/go.mod h1:g0QJRkc48TKM/jLU2J8vNJZgvdflABrIu8Y4OX1665s=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/go-logr/logr v1.4.3 h1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=

@@ -43,10 +43,11 @@ Engine instance (HTTP / gRPC / WASM / in-process)
 | `protocol`   | HTTP ↔ Request/Response conversion (JSON), gRPC envelope conversion, error responses |
 | `gateway`    | The HTTP front door: middleware chain, health endpoint, engine forwarding client |
 | `grpcserver` | The gRPC front door: implements the canonical `EngineService` from [contracts](https://github.com/APPNEURAL-Engines/contracts), backed by the same auth/routing/ratelimit/retry instances as `gateway` |
+| `connectgateway` | The Connect front door: adapts `grpcserver.Server` onto [connectrpc.com/connect](https://connectrpc.com), which speaks Connect protocol *and* gRPC-Web from one handler — what browsers and plain HTTP clients (curl, etc.) can reach without a gRPC-Web proxy |
 | `config`     | Environment-based runtime configuration for `cmd/gateway` |
-| `cmd/gateway`| The deployable binary — starts both front doors from one process |
+| `cmd/gateway`| The deployable binary — starts all three front doors from one process |
 
-## Two Front Doors, One Policy Engine
+## Three Front Doors, One Policy Engine
 
 The gateway is the "Gateway" step in the platform's contract flow:
 
@@ -54,20 +55,31 @@ The gateway is the "Gateway" step in the platform's contract flow:
 Application → SDK → Contract (proto) → Gateway → Engine → Provider
 ```
 
-It exposes two protocols that share one instance of every policy component
-(auth, routing registry, rate limiter, quota, circuit breaker):
+It exposes three protocols that share one instance of every policy
+component (auth, routing registry, rate limiter, quota, circuit breaker):
 
-- **gRPC** (`grpcserver`) implements `appneurox.engine.v1.EngineService` —
-  `Execute`, `GetHealth`, `ListEngines`, `GetEngine` — exactly as defined in
-  `contracts/proto/engine/gateway.proto`. This is the canonical, typed API
-  SDKs generated from `contracts` talk to.
-- **HTTP/JSON** (`gateway`) exposes `POST /v1/{engine}/{capability}` for
-  clients that prefer plain REST.
+- **gRPC** (`grpcserver`, port `:9090` by default) implements
+  `appneurox.engine.v1.EngineService` — `Execute`, `GetHealth`,
+  `ListEngines`, `GetEngine` — exactly as defined in
+  `contracts/proto/engine/gateway.proto`. This is what the Go/TypeScript/Python
+  SDKs (`engine-sdk`) talk to.
+- **Connect** (`connectgateway`, port `:8081` by default) implements the
+  same `EngineService`, reachable via the [Connect protocol](https://connectrpc.com/docs/protocol)
+  or gRPC-Web over plain HTTP/1.1 — no gRPC-Web proxy needed. This is what a
+  browser SDK generated with `protoc-gen-connect-es` (`contracts/gen/es`)
+  talks to.
+- **HTTP/JSON** (`gateway`, port `:8080` by default) exposes
+  `POST /v1/{engine}/{capability}` for clients that prefer plain REST.
 
-Because both share the same `auth.Authenticator`, `auth.Authorizer`,
-`ratelimit.Limiter`, `routing.Registry` and `retry.CircuitBreaker`
-instances, a request is authenticated, authorized, rate limited and routed
-identically no matter which protocol it arrived on.
+`connectgateway` doesn't reimplement auth, routing, rate limiting, or
+circuit breaking — every method delegates straight to `grpcserver.Server`,
+bridging Connect's HTTP headers into the gRPC incoming-metadata shape
+`grpcserver`'s auth code already reads, and translating
+`google.golang.org/grpc/status` errors into `connect.Error` (numerically
+identical codes). So all three front doors — including gRPC and Connect,
+which are two independently-listening servers — are authenticated,
+authorized, rate limited and routed identically no matter which protocol a
+request arrived on.
 
 ## Request Flow
 
@@ -151,6 +163,7 @@ gets deployed. It's configured entirely from environment variables:
 |----------------------------|----------------------|--------------------------------------------|
 | `GATEWAY_HTTP_ADDR`        | `:8080`               | HTTP/JSON listen address                    |
 | `GATEWAY_GRPC_ADDR`        | `:9090`               | gRPC (`EngineService`) listen address       |
+| `GATEWAY_CONNECT_ADDR`     | `:8081`               | Connect protocol / gRPC-Web listen address  |
 | `GATEWAY_JWT_SECRET`       | *(unset)*             | HMAC secret for JWT auth; auth/authz are disabled if unset (dev only) |
 | `GATEWAY_JWT_ISSUER`       | `appneurox`            | Expected JWT issuer                         |
 | `GATEWAY_JWT_AUDIENCE`     | `engine-gateway`       | Expected JWT audience                       |

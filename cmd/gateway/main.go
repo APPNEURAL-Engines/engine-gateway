@@ -1,13 +1,16 @@
 // Command gateway runs the AppNeurox Engine Gateway: an HTTP/JSON front
-// door and a gRPC front door (the canonical contracts.EngineService) that
-// share one auth, routing, rate-limiting and circuit-breaking policy
-// engine, and forward requests on to registered engines.
+// door, a gRPC front door, and a Connect front door (gRPC-Web + Connect
+// protocol, for browsers and plain HTTP clients) -- all three built on the
+// canonical contracts.EngineService and sharing one auth, routing,
+// rate-limiting and circuit-breaking policy engine, forwarding requests on
+// to registered engines.
 package main
 
 import (
 	"context"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +19,7 @@ import (
 	enginev1 "github.com/APPNEURAL-Engines/contracts/gen/go/engine"
 	"github.com/APPNEURAL-Engines/engine-gateway/auth"
 	"github.com/APPNEURAL-Engines/engine-gateway/config"
+	"github.com/APPNEURAL-Engines/engine-gateway/connectgateway"
 	"github.com/APPNEURAL-Engines/engine-gateway/gateway"
 	"github.com/APPNEURAL-Engines/engine-gateway/grpcserver"
 	"github.com/APPNEURAL-Engines/engine-gateway/ratelimit"
@@ -113,10 +117,22 @@ func main() {
 		log.Fatalf("failed to listen on %s: %v", cfg.GRPCAddr, err)
 	}
 
+	connectMux := http.NewServeMux()
+	connectPath, connectHandler := connectgateway.NewHTTPHandler(engineServer)
+	connectMux.Handle(connectPath, connectHandler)
+	connectSrv := &http.Server{Addr: cfg.ConnectAddr, Handler: connectMux}
+
 	go func() {
 		logger.Info("grpc server starting", map[string]interface{}{"address": cfg.GRPCAddr})
 		if err := grpcSrv.Serve(grpcListener); err != nil {
 			log.Fatalf("grpc server failed: %v", err)
+		}
+	}()
+
+	go func() {
+		logger.Info("connect server starting", map[string]interface{}{"address": cfg.ConnectAddr})
+		if err := connectSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("connect server failed: %v", err)
 		}
 	}()
 
@@ -137,5 +153,8 @@ func main() {
 	grpcSrv.GracefulStop()
 	if err := httpGateway.Shutdown(shutdownCtx); err != nil {
 		logger.Error("http gateway shutdown error", err, nil)
+	}
+	if err := connectSrv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("connect server shutdown error", err, nil)
 	}
 }

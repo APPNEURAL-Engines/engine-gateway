@@ -11,8 +11,9 @@ import (
 // Config holds the settings needed to start the gateway's HTTP and gRPC
 // front doors and bootstrap its static engine registry.
 type Config struct {
-	HTTPAddr string
-	GRPCAddr string
+	HTTPAddr    string
+	GRPCAddr    string
+	ConnectAddr string
 
 	JWTSecret   string
 	JWTIssuer   string
@@ -40,6 +41,7 @@ func Load() Config {
 	cfg := Config{
 		HTTPAddr:       getEnv("GATEWAY_HTTP_ADDR", ":8080"),
 		GRPCAddr:       getEnv("GATEWAY_GRPC_ADDR", ":9090"),
+		ConnectAddr:    getEnv("GATEWAY_CONNECT_ADDR", ":8081"),
 		JWTSecret:      getEnv("GATEWAY_JWT_SECRET", ""),
 		JWTIssuer:      getEnv("GATEWAY_JWT_ISSUER", "appneurox"),
 		JWTAudience:    getEnv("GATEWAY_JWT_AUDIENCE", "engine-gateway"),
