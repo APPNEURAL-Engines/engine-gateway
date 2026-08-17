@@ -174,7 +174,7 @@ See [deploy/Dockerfile](deploy/Dockerfile) for a container build and the
 Engines don't need to be Go, or implement anything from `engine-core` —
 `EngineEndpoint.Protocol: "http"` just needs something listening at
 `{address}/{capability}` (see `gateway/client.go`'s `HTTPEngineClient`).
-Two worked examples, same pattern in different languages, both verified
+Three worked examples, same pattern in different languages, all verified
 end-to-end through this gateway's HTTP and gRPC front doors with real data,
 not a mock backend:
 
@@ -184,6 +184,9 @@ not a mock backend:
 - [APPNEURAL-Engines/storage-engine's `service/`](https://github.com/APPNEURAL-Engines/storage-engine/tree/main/service) —
   the same pattern in Go, in front of a blob/object storage engine
   (put/get/list/copy/move round-trips).
+- [APPNEURAL-Engines/rule-engine's `service/`](https://github.com/APPNEURAL-Engines/rule-engine/tree/main/service) —
+  the same pattern in TypeScript, in front of a business rule engine
+  (multi-rule evaluation with priority ordering, trace, and explanation).
 
 ## Testing
 
