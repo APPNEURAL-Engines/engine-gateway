@@ -174,11 +174,16 @@ See [deploy/Dockerfile](deploy/Dockerfile) for a container build and the
 Engines don't need to be Go, or implement anything from `engine-core` —
 `EngineEndpoint.Protocol: "http"` just needs something listening at
 `{address}/{capability}` (see `gateway/client.go`'s `HTTPEngineClient`).
-[APPNEURAL-Engines/pdf-engine's `service/`](https://github.com/APPNEURAL-Engines/pdf-engine/tree/main/service)
-is a worked example: a stdlib-only HTTP shim in front of a mature Python PDF
-library, verified end-to-end through both this gateway's HTTP and gRPC front
-doors with real multi-page PDFs (metadata extraction, splitting, merging) —
-not a mock backend.
+Two worked examples, same pattern in different languages, both verified
+end-to-end through this gateway's HTTP and gRPC front doors with real data,
+not a mock backend:
+
+- [APPNEURAL-Engines/pdf-engine's `service/`](https://github.com/APPNEURAL-Engines/pdf-engine/tree/main/service) —
+  a stdlib-only Python HTTP shim in front of a mature PDF library (metadata
+  extraction, splitting, merging).
+- [APPNEURAL-Engines/storage-engine's `service/`](https://github.com/APPNEURAL-Engines/storage-engine/tree/main/service) —
+  the same pattern in Go, in front of a blob/object storage engine
+  (put/get/list/copy/move round-trips).
 
 ## Testing
 
